@@ -20,7 +20,7 @@ Disconnect all devices with `/obsidian_off` in the bot.
 
 ### Install
 
-Settings → Community plugins → Browse → search for **Nooka Inbox**. Beta builds: [BRAT](https://github.com/TfTHacker/obsidian42-brat) → *Add beta plugin* → `kumsht/nooka-obsidian`.
+Settings → Community plugins → Browse → search for **Nooka Inbox**.
 
 ## Privacy and network use
 
