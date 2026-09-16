@@ -1,7 +1,7 @@
 {
   "id": "nooka-inbox",
   "name": "Nooka Inbox",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "minAppVersion": "1.13.0",
   "description": "Save notes, voice messages and Reels from the Nooka Telegram bot straight into your vault. End-to-end encrypted.",
   "author": "Sergey Revin",
