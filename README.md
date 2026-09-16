@@ -23,6 +23,7 @@ This plugin makes network requests **only** to `https://obsidian.nooka.pro`:
 - `POST /obsidian/pair` — once, to exchange the code for a device token and register this vault's public key;
 - `GET /obsidian/pending` — to fetch queued notes;
 - `POST /obsidian/ack` — to confirm delivered notes so the server deletes them.
+- `POST /obsidian/revoke` — when you press «Отключить это устройство».
 
 Notes are **end-to-end encrypted**: on connect the plugin generates an RSA-OAEP key pair; the private key never leaves the plugin's `data.json`. The bot encrypts each note with your public key (AES-256-GCM + RSA-OAEP-SHA-256), so the queue on the server holds only ciphertext, and a note encrypted for someone else cannot be decrypted — the plugin never writes such items. Delivered notes are deleted immediately; undelivered ones after 7 days.
 
