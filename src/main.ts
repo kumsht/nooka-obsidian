@@ -1,4 +1,4 @@
-import { App, Notice, Platform, Plugin, PluginSettingTab, Setting, normalizePath, requestUrl, TFolder } from "obsidian";
+import { App, Notice, Platform, Plugin, PluginSettingTab, SettingDefinitionItem, normalizePath, requestUrl, TFolder } from "obsidian";
 import { Envelope, generateKeys, importPrivateKey, openEnvelope } from "./crypto";
 
 const DEFAULT_SERVER = "https://obsidian.nooka.pro";
@@ -14,6 +14,11 @@ interface NookaSettings {
   deliveredIds: string[];
 }
 
+interface PendingItem {
+  id: string;
+  envelope: Envelope;
+}
+
 const DEFAULT_SETTINGS: NookaSettings = {
   serverUrl: DEFAULT_SERVER,
   folder: "Nooka Inbox",
@@ -27,7 +32,7 @@ const DEFAULT_SETTINGS: NookaSettings = {
 // Keep one path segment; the server sanitizes too, this is defence in depth.
 function safeName(name: string): string {
   const base = String(name || "")
-    .replace(/[\\/:*?"<>|#^[\]\u0000-\u001f]/g, " ")
+    .replace(/[\\/:*?"<>|#^[\]]|\p{Cc}/gu, " ")
     .replace(/\s+/g, " ")
     .replace(/^[.\s]+/, "")
     .replace(/\.md$/i, "")
@@ -57,7 +62,8 @@ export default class NookaInboxPlugin extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const saved = (await this.loadData()) as Partial<NookaSettings> | null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
   }
 
   async saveSettings() {
@@ -92,7 +98,9 @@ export default class NookaInboxPlugin extends Plugin {
       const msg = res.status === 429 ? "Слишком много попыток, подождите 10 минут" : "Код неверный или истёк — запросите новый командой /obsidian в боте";
       throw new Error(msg);
     }
-    this.settings.token = res.json.token;
+    const { token } = res.json as { token?: unknown };
+    if (typeof token !== "string" || !token) throw new Error("Сервер вернул неожиданный ответ, попробуйте позже");
+    this.settings.token = token;
     await this.saveSettings();
     new Notice("Nooka: подключено ✅");
     await this.sync(true);
@@ -133,7 +141,8 @@ export default class NookaInboxPlugin extends Plugin {
       }
       if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
 
-      const items: { id: string; envelope: Envelope }[] = res.json.items || [];
+      const { items: raw } = res.json as { items?: unknown };
+      const items: PendingItem[] = Array.isArray(raw) ? (raw as PendingItem[]) : [];
       const key = await importPrivateKey(this.settings.privateKeyJwk);
       const acked: string[] = [];
       let created = 0;
@@ -205,59 +214,72 @@ class NookaSettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
-  display(): void {
-    const { containerEl } = this;
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    const connected = () => Boolean(this.plugin.settings.token);
+    return [
+      {
+        name: "Код подключения",
+        desc: "Отправьте боту @n8n_nooka_bot команду /obsidian и вставьте код сюда.",
+        aliases: ["nooka", "code", "connect"],
+        visible: () => !connected(),
+        render: (setting) => {
+          setting
+            .addText((t) => t.setPlaceholder("Код из бота").setValue(this.code).onChange((v) => (this.code = v)))
+            .addButton((b) =>
+              b.setButtonText("Подключить").setCta().onClick(async () => {
+                b.setDisabled(true);
+                try {
+                  await this.plugin.pair(this.code);
+                  this.code = "";
+                  this.update();
+                } catch (e) {
+                  new Notice(`Nooka: ${(e as Error).message}`);
+                  b.setDisabled(false);
+                }
+              }),
+            );
+        },
+      },
+      {
+        name: "Подключено ✅",
+        desc: "Заметки из бота приходят в папку ниже. Отключить все устройства можно командой /obsidian_off в боте.",
+        visible: connected,
+        render: (setting) => {
+          setting
+            .addButton((b) => b.setButtonText("Забрать сейчас").onClick(() => this.plugin.sync(true)))
+            .addButton((b) =>
+              b.setButtonText("Отключить это устройство").setDestructive().onClick(async () => {
+                await this.plugin.disconnect();
+                this.update();
+              }),
+            );
+        },
+      },
+      {
+        name: "Папка для заметок",
+        control: { type: "text", key: "folder", placeholder: DEFAULT_SETTINGS.folder, defaultValue: DEFAULT_SETTINGS.folder },
+      },
+      {
+        name: "Проверять каждые (минут)",
+        control: { type: "number", key: "intervalMinutes", min: 1, max: 120, defaultValue: DEFAULT_SETTINGS.intervalMinutes },
+      },
+    ];
+  }
+
+  getControlValue(key: string): unknown {
+    return this.plugin.settings[key as keyof NookaSettings];
+  }
+
+  async setControlValue(key: string, value: unknown): Promise<void> {
     const s = this.plugin.settings;
-    containerEl.empty();
-
-    if (s.token) {
-      new Setting(containerEl)
-        .setName("Подключено ✅")
-        .setDesc("Заметки из бота приходят в папку ниже. Отключить все устройства можно командой /obsidian_off в боте.")
-        .addButton((b) => b.setButtonText("Забрать сейчас").onClick(() => this.plugin.sync(true)))
-        .addButton((b) =>
-          b.setButtonText("Отключить это устройство").setWarning().onClick(async () => {
-            await this.plugin.disconnect();
-            this.display();
-          }),
-        );
+    if (key === "folder") {
+      s.folder = (typeof value === "string" ? value.trim() : "") || DEFAULT_SETTINGS.folder;
+    } else if (key === "intervalMinutes") {
+      s.intervalMinutes = Math.max(1, Math.min(120, Math.round(Number(value)) || DEFAULT_SETTINGS.intervalMinutes));
+      this.plugin.scheduleSync();
     } else {
-      new Setting(containerEl)
-        .setName("Код подключения")
-        .setDesc("Отправьте боту @n8n_nooka_bot команду /obsidian и вставьте код сюда.")
-        .addText((t) => t.setPlaceholder("ABCD-EFGH").onChange((v) => (this.code = v)))
-        .addButton((b) =>
-          b.setButtonText("Подключить").setCta().onClick(async () => {
-            b.setDisabled(true);
-            try {
-              await this.plugin.pair(this.code);
-              this.display();
-            } catch (e) {
-              new Notice(`Nooka: ${(e as Error).message}`);
-              b.setDisabled(false);
-            }
-          }),
-        );
+      return;
     }
-
-    new Setting(containerEl)
-      .setName("Папка для заметок")
-      .addText((t) =>
-        t.setValue(s.folder).onChange(async (v) => {
-          s.folder = v.trim() || DEFAULT_SETTINGS.folder;
-          await this.plugin.saveSettings();
-        }),
-      );
-
-    new Setting(containerEl)
-      .setName("Проверять каждые (минут)")
-      .addText((t) =>
-        t.setValue(String(s.intervalMinutes)).onChange(async (v) => {
-          const n = Math.max(1, Math.min(120, parseInt(v, 10) || 5));
-          s.intervalMinutes = n;
-          await this.plugin.saveSettings();
-          this.plugin.scheduleSync();
-        }),
-      );
+    await this.plugin.saveSettings();
   }
 }

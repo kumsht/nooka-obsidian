@@ -1,6 +1,6 @@
 {
   "name": "nooka-obsidian",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Obsidian plugin: pulls notes saved via the Nooka Telegram bot into your vault",
   "main": "main.js",
   "scripts": {
@@ -10,7 +10,6 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "builtin-modules": "^3.3.0",
     "esbuild": "^0.25.0",
     "obsidian": "latest",
     "tslib": "^2.6.0",

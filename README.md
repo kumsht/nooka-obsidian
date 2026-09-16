@@ -4,6 +4,12 @@ Save notes, voice messages and Instagram Reels from the [Nooka](https://nooka.pr
 
 Works with any sync method — iCloud, Obsidian Sync, Git, Syncthing, Google Drive — and on mobile, because the plugin itself pulls new notes into the vault; nothing writes to your cloud storage from outside.
 
+## Requirements
+
+- An account in the [Nooka](https://nooka.pro) Telegram bot [@n8n_nooka_bot](https://t.me/n8n_nooka_bot) with Notion connected (notes are saved to Notion and delivered to Obsidian).
+- Obsidian 1.13 or later, desktop or mobile.
+- The plugin is free. It needs network access to `https://obsidian.nooka.pro` (see below).
+
 ## Setup
 
 1. Send `/obsidian` to [@n8n_nooka_bot](https://t.me/n8n_nooka_bot) — you'll get a one-time code (valid 10 minutes).
@@ -12,9 +18,9 @@ Works with any sync method — iCloud, Obsidian Sync, Git, Syncthing, Google Dri
 
 Disconnect all devices with `/obsidian_off` in the bot.
 
-### Install before the plugin is in the community catalog
+### Install
 
-Install [BRAT](https://github.com/TfTHacker/obsidian42-brat) → *Add beta plugin* → `kumsht/nooka-obsidian`.
+Settings → Community plugins → Browse → search for **Nooka Inbox**. Beta builds: [BRAT](https://github.com/TfTHacker/obsidian42-brat) → *Add beta plugin* → `kumsht/nooka-obsidian`.
 
 ## Privacy and network use
 
