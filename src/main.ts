@@ -1,4 +1,4 @@
-import { App, Notice, Platform, Plugin, PluginSettingTab, SettingDefinitionItem, normalizePath, requestUrl, TFolder } from "obsidian";
+import { App, Notice, Platform, Plugin, PluginSettingTab, SettingDefinitionItem, normalizePath, requestUrl, TFile, TFolder } from "obsidian";
 import { Envelope, generateKeys, importPrivateKey, openEnvelope } from "./crypto";
 
 const DEFAULT_SERVER = "https://obsidian.nooka.pro";
@@ -130,7 +130,8 @@ export default class NookaInboxPlugin extends Plugin {
     try {
       const res = await requestUrl({
         url: this.api("/obsidian/pending"),
-        headers: { Authorization: `Bearer ${this.settings.token}` },
+        // the server hands task lines only to versions that can add them to a file
+        headers: { Authorization: `Bearer ${this.settings.token}`, "X-Nooka-Plugin": this.manifest.version },
         throw: false,
       });
       if (res.status === 401) {
@@ -145,7 +146,7 @@ export default class NookaInboxPlugin extends Plugin {
       const items: PendingItem[] = Array.isArray(raw) ? (raw as PendingItem[]) : [];
       const key = await importPrivateKey(this.settings.privateKeyJwk);
       const acked: string[] = [];
-      let created = 0;
+      let created = 0, tasks = 0;
 
       for (const item of items) {
         if (this.settings.deliveredIds.includes(item.id)) {
@@ -158,12 +159,18 @@ export default class NookaInboxPlugin extends Plugin {
         } catch {
           continue; // not for this key: never write, never ack
         }
-        await this.writeNote(note.filename, note.markdown);
+        if (note.kind === "task_append") {
+          if (typeof note.id !== "string" || !/^[0-9a-z]{4,32}$/.test(note.id)) continue; // malformed: never write, never ack
+          await this.appendTask(note.filename, note.markdown, note.id);
+          tasks++;
+        } else {
+          await this.writeNote(note.filename, note.markdown);
+          created++;
+        }
         this.rememberDelivered(item.id);
         acked.push(item.id);
-        created++;
       }
-      if (created) await this.saveSettings();
+      if (created || tasks) await this.saveSettings();
 
       if (acked.length) {
         await requestUrl({
@@ -175,8 +182,8 @@ export default class NookaInboxPlugin extends Plugin {
           throw: false,
         });
       }
-      if (created) new Notice(`Nooka: новых заметок — ${created}`);
-      else if (manual) new Notice("Nooka: новых заметок нет");
+      if (created || tasks) new Notice(`Nooka: ${[created && `новых заметок — ${created}`, tasks && `новых задач — ${tasks}`].filter(Boolean).join(", ")}`);
+      else if (manual) new Notice("Nooka: нового ничего нет");
     } catch (e) {
       console.error("[nooka-inbox] sync failed", e);
       if (manual) new Notice("Nooka: не удалось забрать заметки, попробуйте позже");
@@ -192,11 +199,34 @@ export default class NookaInboxPlugin extends Plugin {
     }
   }
 
-  private async writeNote(filename: string, markdown: string) {
+  private async ensureFolder(): Promise<string> {
     const folder = normalizePath(this.settings.folder || DEFAULT_SETTINGS.folder);
     const existing = this.app.vault.getAbstractFileByPath(folder);
     if (!existing) await this.app.vault.createFolder(folder);
     else if (!(existing instanceof TFolder)) throw new Error(`${folder} is not a folder`);
+    return folder;
+  }
+
+  // One task line at the end of the tasks file («Задачи.md»). A line whose ^nk-<id> is already in the file is
+  // not added again: two devices of one synced vault may both receive it.
+  private async appendTask(filename: string, line: string, id: string) {
+    const folder = await this.ensureFolder();
+    const path = normalizePath(`${folder}/${safeName(filename)}.md`);
+    const clean = line.replace(/[\r\n]+/g, " ").trim();
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (!file) {
+      await this.app.vault.create(path, clean + "\n");
+      return;
+    }
+    if (!(file instanceof TFile)) throw new Error(`${path} is not a file`);
+    await this.app.vault.process(file, (data) => {
+      if (data.includes(`^nk-${id}`)) return data;
+      return data + (data && !data.endsWith("\n") ? "\n" : "") + clean + "\n";
+    });
+  }
+
+  private async writeNote(filename: string, markdown: string) {
+    const folder = await this.ensureFolder();
 
     const base = safeName(filename);
     let path = normalizePath(`${folder}/${base}.md`);

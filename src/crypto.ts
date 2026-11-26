@@ -13,6 +13,10 @@ export interface NotePayload {
   filename: string;
   markdown: string;
   created_at: string;
+  /** "task_append": `markdown` is one task line to add to `filename`; absent: a new note file */
+  kind?: string;
+  /** the task line's id: the line ends with ^nk-<id> */
+  id?: string;
 }
 
 export function b64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
